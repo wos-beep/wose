@@ -1,41 +1,139 @@
-<!DOCTYPE html>
-<html lang="ja" class="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ホワサバ・カレンダービューア v1.1.0</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
-    <style>
-        body { background-color: #121212; color: #e0e0e0; }
-        .fc { max-width: 1100px; margin: 0 auto; background: #1e1e1e; padding: 20px; border-radius: 8px; }
-        .fc-toolbar-title { color: #60a5fa !important; font-size: 1.25rem !important; }
-        .fc-col-header-cell { background: #2d2d2d; padding: 8px 0; }
-        .fc-daygrid-day:hover { background: #252525; }
-        .fc-event { cursor: pointer; border: none !important; padding: 2px 4px; margin-bottom: 1px; }
-        .event-actual { border-left: 3px solid #fff !important; font-weight: bold; }
-        .event-forecast { opacity: 0.8; border-left: 3px solid rgba(255,255,255,0.3) !important; }
-    </style>
-</head>
-<body class="p-4 md:p-8">
-    <header class="mb-8 border-b border-gray-700 pb-4 flex flex-col md:flex-row justify-between items-center max-w-5xl mx-auto gap-4">
-        <div>
-            <h1 class="text-xl font-bold text-blue-400">イベントカレンダー</h1>
-            <p class="text-xs text-gray-500 mt-1">※実績データがある日は自動的に予測を非表示にします</p>
-        </div>
-        <div class="flex items-center space-x-4">
-            <div class="text-xs flex space-x-3 mr-4">
-                <span class="flex items-center"><span class="w-3 h-3 border-l-4 border-white mr-1"></span>実績</span>
-                <span class="flex items-center opacity-60"><span class="w-3 h-3 border-l-4 border-gray-500 mr-1"></span>予測</span>
-            </div>
-            <button id="import-btn" class="bg-purple-700 hover:bg-purple-800 py-1.5 px-4 rounded text-white text-sm transition shadow-lg">JSON読み込み</button>
-            <input type="file" id="import-file" class="hidden" accept=".json">
-        </div>
-    </header>
+/**
+ * ホワサバ・カレンダービューア
+ * viewer.js v1.1.0
+ */
 
-    <div id="calendar"></div>
+class CalendarApp {
+    constructor() {
+        this.calendarEl = document.getElementById('calendar');
+        this.calendar = null;
+        this.initCalendar();
+        this.setupEventListeners();
+    }
 
-    <script src="viewer.js"></script>
-</body>
-</html>
+    initCalendar() {
+        this.calendar = new FullCalendar.Calendar(this.calendarEl, {
+            initialView: 'dayGridMonth',
+            locale: 'ja',
+            firstDay: 1, 
+            headerToolbar: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'dayGridMonth,timeGridWeek'
+            },
+            eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+            dayMaxEvents: true,
+            events: []
+        });
+        this.calendar.render();
+    }
+
+    setupEventListeners() {
+        document.getElementById('import-btn').addEventListener('click', () => {
+            document.getElementById('import-file').click();
+        });
+        document.getElementById('import-file').addEventListener('change', (e) => this.handleImport(e));
+    }
+
+    handleImport(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const data = JSON.parse(event.target.result);
+                // 重複排除ロジックを通してイベント生成
+                const calendarEvents = this.generateCalendarEvents(data.events);
+                
+                this.calendar.removeAllEvents();
+                this.calendar.addEventSource(calendarEvents);
+                
+                const stats = this.countEvents(calendarEvents);
+                console.log(`Loaded: ${stats.actual} actuals, ${stats.forecast} forecasts.`);
+            } catch (err) {
+                alert("エラー: JSONの形式が正しくありません。" + err.message);
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    generateCalendarEvents(masterEvents) {
+        const events = [];
+        const generateRangeMonths = 12; // 今後12ヶ月分を計算
+        const now = dayjs();
+        const endLimit = now.add(generateRangeMonths, 'month');
+
+        // 重複チェック用のSet (日付_イベント名)
+        const actualRecords = new Set();
+
+        // 1. 実績（once）を先に処理し、記録する
+        masterEvents.filter(m => m.occurrence.frequency_type === 'once').forEach(master => {
+            const startDay = dayjs(master.start).format('YYYY-MM-DD');
+            actualRecords.add(`${startDay}_${master.name}`);
+
+            events.push({
+                title: `[実] ${master.name}`,
+                start: master.start,
+                end: master.end,
+                backgroundColor: this.getCategoryColor(master.category),
+                className: 'event-actual',
+                extendedProps: { type: 'actual', category: master.category }
+            });
+        });
+
+        // 2. 周期（weekly）を処理。実績と被る日はスキップ
+        masterEvents.filter(m => m.occurrence.frequency_type === 'weekly').forEach(master => {
+            let currentStart = dayjs(master.start);
+            const intervalWeeks = master.occurrence.interval || 1;
+            const durationHrs = master.occurrence.duration_hours;
+            const color = this.getCategoryColor(master.category);
+
+            while (currentStart.isBefore(endLimit)) {
+                const dateKey = currentStart.format('YYYY-MM-DD');
+                const collisionKey = `${dateKey}_${master.name}`;
+
+                // 実績がない場合のみ、予測として追加
+                if (!actualRecords.has(collisionKey)) {
+                    const currentEnd = currentStart.add(durationHrs, 'hour');
+                    events.push({
+                        title: master.name,
+                        start: currentStart.format('YYYY-MM-DDTHH:mm:ss'),
+                        end: currentEnd.format('YYYY-MM-DDTHH:mm:ss'),
+                        backgroundColor: color,
+                        className: 'event-forecast',
+                        extendedProps: { type: 'forecast', category: master.category }
+                    });
+                }
+                currentStart = currentStart.add(intervalWeeks, 'week');
+            }
+        });
+
+        return events;
+    }
+
+    countEvents(events) {
+        return events.reduce((acc, ev) => {
+            acc[ev.extendedProps.type]++;
+            return acc;
+        }, { actual: 0, forecast: 0 });
+    }
+
+    getCategoryColor(category) {
+        const colors = {
+            '戦争': '#ef4444',
+            '内政': '#10b981',
+            '課金': '#f59e0b',
+            '同盟': '#3b82f6',
+            '個人': '#8b5cf6',
+            'バライベ': '#ec4899',
+            '季節イベ': '#f472b6',
+            '未分類': '#6b7280'
+        };
+        return colors[category] || '#4b5563';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    window.app = new CalendarApp();
+});
