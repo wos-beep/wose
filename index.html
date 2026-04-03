@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ja" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ホワサバ・カレンダービューア v1.0.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
+    <style>
+        body { background-color: #121212; color: #e0e0e0; }
+        .fc { max-width: 1100px; margin: 0 auto; background: #1e1e1e; padding: 20px; border-radius: 8px; }
+        .fc-toolbar-title { color: #60a5fa !important; }
+        .fc-col-header-cell { background: #2d2d2d; }
+        .fc-daygrid-day:hover { background: #252525; }
+        .fc-event { cursor: pointer; border: none !important; padding: 2px 4px; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <header class="mb-8 border-b border-gray-700 pb-4 flex justify-between items-center max-w-5xl mx-auto">
+        <h1 class="text-xl font-bold text-blue-400">イベントカレンダー</h1>
+        <div class="flex items-center space-x-4">
+            <button id="import-btn" class="bg-purple-700 hover:bg-purple-800 py-1.5 px-4 rounded text-white text-sm transition">JSON読み込み</button>
+            <input type="file" id="import-file" class="hidden" accept=".json">
+        </div>
+    </header>
+
+    <div id="calendar"></div>
+
+    <script src="viewer.js"></script>
+</body>
+</html>
